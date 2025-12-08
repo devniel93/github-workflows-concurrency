@@ -66,7 +66,7 @@ echo "ℹ️  Esperamos: Cola/Cancelación en DEV, pero ejecución LIBRE en QA."
 TARGET_API="Legacy-Monolith-V1"
 
 # Parte A: Inundación en DEV
-for i in {1..5}
+for i in {1..3}
 do
    echo "📝 [DEV] Solicitando despliegue #$i para: $TARGET_API..."
    

@@ -85,7 +85,7 @@ jobs:
         run: |
           echo "⏳ Simulando despliegue y validaciones (90 segundos)..."
           # Dormir para mantener el lock ocupado y forzar a otros a esperar
-          sleep 90
+          sleep 50
 
       - name: Finish Deployment
         run: |
