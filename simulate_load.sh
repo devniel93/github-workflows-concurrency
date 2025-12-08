@@ -1,26 +1,23 @@
 #!/bin/bash
 
 # ========================================================================================
-# SCRIPT DE SIMULACIÓN DE CARGA PARA GITHUB ACTIONS (V2)
+# SCRIPT DE SIMULACIÓN DE CARGA PARA GITHUB ACTIONS (V3)
 # ========================================================================================
-# Este script prueba dos comportamientos clave ahora que la concurrencia incluye 'api_name':
+# Este script prueba tres comportamientos clave:
 # 
 # 1. PARALELISMO TOTAL: Múltiples APIs distintas desplegando al mismo tiempo.
-# 2. ENCOLAMIENTO/CANCELACIÓN: La MISMA API solicitando múltiples despliegues seguidos.
+# 2. ENCOLAMIENTO/CANCELACIÓN: La MISMA API solicitando múltiples despliegues al MISMO env.
+# 3. INDEPENDENCIA DE AMBIENTE: La MISMA API desplegando a un ambiente DIFERENTE.
 # ========================================================================================
 
 REPO=$(gh repo view --json owner,name -q ".owner.login + \"/\" + .name")
 
 echo "🎯 Objetivo: $REPO"
-echo "🚀 Iniciando simulación de concurrencia V2..."
+echo "🚀 Iniciando simulación de concurrencia V3..."
 
 # ----------------------------------------------------------------------------------------
 # ESCENARIO 1: PARALELISMO (Diferentes APIs)
-# Aunque van al mismo ambiente (dev) y misma APIM (apim-core), al tener nombres distintos
-# y estar la variable 'api_name' en el grupo de concurrencia, NO deben bloquearse.
-# Resultado esperado: 3 Ejecuciones simultáneas en paralelo.
 # ----------------------------------------------------------------------------------------
-
 echo ""
 echo "--- Escenario 1: Paralelismo (3 APIs diferentes -> dev/apim-core) ---"
 echo "ℹ️  Esperamos que estas 3 corran A LA VEZ (In Progress)."
@@ -52,29 +49,26 @@ Prueba de Paralelismo"
        --label "deployment" > /dev/null &
 done
 
-wait # Esperar a que los comandos en background terminen de enviarse
+wait
 echo "✅ Batch Paralelo enviado."
-sleep 2 # Pequeña pausa para separar visualmente en la UI
+sleep 2
 
 # ----------------------------------------------------------------------------------------
-# ESCENARIO 2: BLOQUEO Y CANCELACIÓN (Misma API repetida)
-# Generamos 5 peticiones seguidas para la MISMA API.
-# Al ser el mismo identificador de concurrencia, GitHub aplicará la lógica de cola.
-# Resultado esperado: 
-# - 1ra: In Progress (Corre)
-# - 2da, 3ra, 4ta: Cancelled (Se cancelan por obsolescencia)
-# - 5ta: Pending (Espera a que termine la 1ra)
+# ESCENARIO 2 + 3: Stress en DEV y Paralelo en QA (Misma API)
+# Generamos tráfico pesado para 'Legacy-Monolith-V1' en DEV.
+# Inmediatamente lanzamos 'Legacy-Monolith-V1' en QA.
 # ----------------------------------------------------------------------------------------
 
 echo ""
-echo "--- Escenario 2: Stress Test (5 requests de 'Legacy-Monolith' -> dev/apim-core) ---"
-echo "ℹ️  Esperamos: 1 Ejecutando, 3 Cancelados, 1 Pendiente."
+echo "--- Escenario 2 y 3: Stress en DEV vs QA (Misma API: Legacy-Monolith-V1) ---"
+echo "ℹ️  Esperamos: Cola/Cancelación en DEV, pero ejecución LIBRE en QA."
 
 TARGET_API="Legacy-Monolith-V1"
 
+# Parte A: Inundación en DEV
 for i in {1..5}
 do
-   echo "📝 Solicitando despliegue #$i para: $TARGET_API..."
+   echo "📝 [DEV] Solicitando despliegue #$i para: $TARGET_API..."
    
    BODY="### Nombre de la API
 $TARGET_API
@@ -89,15 +83,38 @@ apim-core
 legacy-team
 
 ### Motivo del Despliegue
-Prueba de Stress y Cancelación #$i"
+Prueba de Stress DEV #$i"
 
    gh issue create --repo "$REPO" \
-       --title "[AUTO] Deploy $TARGET_API #$i (Stress)" \
+       --title "[AUTO] Deploy $TARGET_API #$i (Stress DEV)" \
        --body "$BODY" \
        --label "deployment" > /dev/null
 done
 
-echo "✅ Batch Stress enviado."
+# Parte B: Solicitud Unitaria en QA
+echo "📝 [QA]  Solicitando despliegue para: $TARGET_API en QA..."
+   
+BODY_QA="### Nombre de la API
+$TARGET_API
+
+### Ambiente Destino
+qa
+
+### Instancia APIM
+apim-core
+
+### Equipo Solicitante
+legacy-team
+
+### Motivo del Despliegue
+Prueba Cross-Env QA"
+
+gh issue create --repo "$REPO" \
+    --title "[AUTO] Deploy $TARGET_API (QA - Paralelo)" \
+    --body "$BODY_QA" \
+    --label "deployment" > /dev/null
+
+echo "✅ Simulaciones enviadas."
 
 echo ""
-echo "🎉 Simulación V2 completa. Revisa 'Actions' para contrastar los comportamientos."
+echo "🎉 Simulación V3 completa. Verifica que el Job de QA esté corriendo mientras los de DEV se pelean."
