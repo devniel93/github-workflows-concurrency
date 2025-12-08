@@ -52,7 +52,8 @@ jobs:
 
             // OPCIÓN 3: Bloqueo Combinado (Ambiente + APIM) -> MÁXIMA GRANULARIDAD
             // Solo bloquea si intentan desplegar al MISMO apim en el MISMO ambiente
-            const concurrencyGroup = `deploy-${environment}-${apimInstance}`;
+            // ACTUALIZACIÓN: Se agrega apiName para permitir despliegues paralelos de distintas APIs
+            const concurrencyGroup = `deploy-${apiName}-${environment}-${apimInstance}`;
 
             core.setOutput('concurrency_group', concurrencyGroup);
             console.log(`Concurrency Group set to: ${concurrencyGroup}`);
