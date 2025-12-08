@@ -1,0 +1,108 @@
+name: Deploy API
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  parse-metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      api_name: ${{ steps.parse.outputs.api_name }}
+      environment: ${{ steps.parse.outputs.environment }}
+      apim_instance: ${{ steps.parse.outputs.apim_instance }}
+      concurrency_group: ${{ steps.parse.outputs.concurrency_group }}
+    steps:
+      - name: Parse Issue Body
+        id: parse
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const body = context.payload.issue.body || "";
+
+            // Función auxiliar para extraer valores basados en los encabezados del Issue Form
+            function getValue(header) {
+              // Busca contenido entre "### Header" y el siguiente "###" o fin de archivo
+              const regex = new RegExp(`### ${header}\\s+([\\s\\S]*?)(?:###|$)`);
+              const match = body.match(regex);
+              return match ? match[1].trim() : "unknown";
+            }
+
+            const apiName = getValue('Nombre de la API');
+            const environment = getValue('Ambiente Destino');
+            const apimInstance = getValue('Instancia APIM');
+
+            console.log(`Extracted: API=${apiName}, Env=${environment}, APIM=${apimInstance}`);
+
+            core.setOutput('api_name', apiName);
+            core.setOutput('environment', environment);
+            core.setOutput('apim_instance', apimInstance);
+
+            // -----------------------------------------------------------------------
+            // CONFIGURACIÓN DE CONCURRENCIA
+            // Aquí definimos la "llave" que agrupará las ejecuciones.
+            // Si dos workflows tienen la misma llave y están corriendo, uno esperará al otro.
+            // -----------------------------------------------------------------------
+
+            // OPCIÓN 1: Bloqueo solo por Ambiente (Todos compiten por 'dev', 'qa', etc.)
+            // const concurrencyGroup = `deploy-${environment}`;
+
+            // OPCIÓN 2: Bloqueo solo por Instancia APIM (Competición por recurso APIM)
+            // const concurrencyGroup = `deploy-${apimInstance}`;
+
+            // OPCIÓN 3: Bloqueo Combinado (Ambiente + APIM) -> MÁXIMA GRANULARIDAD
+            // Solo bloquea si intentan desplegar al MISMO apim en el MISMO ambiente
+            const concurrencyGroup = `deploy-${environment}-${apimInstance}`;
+
+            core.setOutput('concurrency_group', concurrencyGroup);
+            console.log(`Concurrency Group set to: ${concurrencyGroup}`);
+
+  deploy:
+    needs: parse-metadata
+    runs-on: ubuntu-latest
+    environment: ${{ needs.parse-metadata.outputs.environment }}
+    concurrency:
+      group: ${{ needs.parse-metadata.outputs.concurrency_group }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Start Deployment Simulation
+        run: |
+          echo "🚀 Inicio de Despliegue"
+          echo "--------------------------------"
+          echo "API Name:      ${{ needs.parse-metadata.outputs.api_name }}"
+          echo "Environment:   ${{ needs.parse-metadata.outputs.environment }}"
+          echo "APIM Instance: ${{ needs.parse-metadata.outputs.apim_instance }}"
+          echo "--------------------------------"
+          echo "🔒 Concurrency Group: ${{ needs.parse-metadata.outputs.concurrency_group }}"
+          echo "⏰ Timestamp Start: $(date -u)"
+          echo "--------------------------------"
+
+      - name: Simulate Heavy Work (90s)
+        run: |
+          echo "⏳ Simulando despliegue y validaciones (90 segundos)..."
+          # Dormir para mantener el lock ocupado y forzar a otros a esperar
+          sleep 90
+
+      - name: Finish Deployment
+        run: |
+          echo "✅ Despliegue Finalizado"
+          echo "⏰ Timestamp End: $(date -u)"
+
+      - name: Generate Log Artifact
+        run: |
+          file_name="deploy_log_${{ needs.parse-metadata.outputs.api_name }}_${{ github.run_id }}.txt"
+          echo "Log de Despliegue" > $file_name
+          echo "API: ${{ needs.parse-metadata.outputs.api_name }}" >> $file_name
+          echo "Env: ${{ needs.parse-metadata.outputs.environment }}" >> $file_name
+          echo "Start: $(date -u)" >> $file_name
+          echo "Status: Success" >> $file_name
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: execution-log-${{ github.event.issue.number }}
+          path: deploy_log_*.txt

@@ -1,0 +1,59 @@
+name: Solicitud de Despliegue de API
+description: Registra una solicitud para desplegar una API en un ambiente específico
+title: "Deploy: [Nombre API]"
+labels: ["deployment"]
+body:
+  - type: input
+    id: api_name
+    attributes:
+      label: Nombre de la API
+      description: Nombre único del servicio a desplegar
+      placeholder: payment-service-v1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Ambiente Destino
+      description: Selecciona el ambiente donde se desplegará
+      options:
+        - dev
+        - tst
+        - qa
+        - prd
+    validations:
+      required: true
+
+  - type: dropdown
+    id: apim_instance
+    attributes:
+      label: Instancia APIM
+      description: Selecciona la instancia de API Management
+      options:
+        - apim-core
+        - apim-customer
+        - apim-channel
+        - apim-partner
+    validations:
+      required: true
+
+  - type: dropdown
+    id: team
+    attributes:
+      label: Equipo Solicitante
+      options:
+        - checkout-team
+        - payments-team
+        - logistics-team
+        - users-team
+    validations:
+      required: true
+
+  - type: textarea
+    id: reason
+    attributes:
+      label: Motivo del Despliegue
+      description: Describe brevemente por qué se requiere este despliegue
+    validations:
+      required: false
