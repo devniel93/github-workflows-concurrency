@@ -1,36 +1,38 @@
 #!/bin/bash
 
 # ========================================================================================
-# SCRIPT DE SIMULACIÓN DE CARGA PARA GITHUB ACTIONS
+# SCRIPT DE SIMULACIÓN DE CARGA PARA GITHUB ACTIONS (V2)
 # ========================================================================================
-# Este script utiliza 'gh' (GitHub CLI) para crear múltiples issues rápidamente.
-# El objetivo es disparar varios workflows casi simultáneamente para observar la concurrencia.
-#
-# Requisitos:
-# 1. GitHub CLI instalado (brew install gh)
-# 2. Autenticado (gh auth login)
+# Este script prueba dos comportamientos clave ahora que la concurrencia incluye 'api_name':
+# 
+# 1. PARALELISMO TOTAL: Múltiples APIs distintas desplegando al mismo tiempo.
+# 2. ENCOLAMIENTO/CANCELACIÓN: La MISMA API solicitando múltiples despliegues seguidos.
 # ========================================================================================
 
 REPO=$(gh repo view --json owner,name -q ".owner.login + \"/\" + .name")
 
 echo "🎯 Objetivo: $REPO"
-echo "🚀 Iniciando simulación de concurrencia..."
+echo "🚀 Iniciando simulación de concurrencia V2..."
 
 # ----------------------------------------------------------------------------------------
-# ESCENARIO 1: ALTA COMPETENCIA (Mismo Recurso)
-# Crearemos 5 issues que apuntan a 'dev' y 'apim-core'.
-# Resultado esperado: 1 Ejecución, 4 en Cola (Pending) si concurrency está activo.
+# ESCENARIO 1: PARALELISMO (Diferentes APIs)
+# Aunque van al mismo ambiente (dev) y misma APIM (apim-core), al tener nombres distintos
+# y estar la variable 'api_name' en el grupo de concurrencia, NO deben bloquearse.
+# Resultado esperado: 3 Ejecuciones simultáneas en paralelo.
 # ----------------------------------------------------------------------------------------
 
 echo ""
-echo "--- Escenario 1: Alta Competencia (5 requests a dev/apim-core) ---"
-for i in {1..5}
+echo "--- Escenario 1: Paralelismo (3 APIs diferentes -> dev/apim-core) ---"
+echo "ℹ️  Esperamos que estas 3 corran A LA VEZ (In Progress)."
+
+APIS=("Payment-Service" "User-Service" "Notification-Service")
+
+for api in "${APIS[@]}"
 do
-   echo "📝 Creando Issue #$i..."
+   echo "📝 Solicitando despliegue para: $api..."
    
-   # Construimos el cuerpo respetando el formato del Issue Template
    BODY="### Nombre de la API
-API-Simulada-$i
+$api
 
 ### Ambiente Destino
 dev
@@ -39,72 +41,63 @@ dev
 apim-core
 
 ### Equipo Solicitante
-payments-team
+checkout-team
 
 ### Motivo del Despliegue
-Prueba de carga automatizada batch 1"
+Prueba de Paralelismo"
 
    gh issue create --repo "$REPO" \
-       --title "[AUTO] Deploy Request $i (Competencia)" \
+       --title "[AUTO] Deploy $api (Paralelo)" \
        --body "$BODY" \
-       --label "deployment" > /dev/null
+       --label "deployment" > /dev/null &
 done
 
-echo "✅ Batch 1 enviado."
+wait # Esperar a que los comandos en background terminen de enviarse
+echo "✅ Batch Paralelo enviado."
+sleep 2 # Pequeña pausa para separar visualmente en la UI
 
 # ----------------------------------------------------------------------------------------
-# ESCENARIO 2: RECURSOS PARALELOS
-# Crearemos 2 issues para ambientes distintos (qa y prd).
-# Resultado esperado: Deberían ejecutarse en paralelo sin bloquearse entre sí 
-# (ni bloquear a los de dev, asumiendo concurrency por grupo).
+# ESCENARIO 2: BLOQUEO Y CANCELACIÓN (Misma API repetida)
+# Generamos 5 peticiones seguidas para la MISMA API.
+# Al ser el mismo identificador de concurrencia, GitHub aplicará la lógica de cola.
+# Resultado esperado: 
+# - 1ra: In Progress (Corre)
+# - 2da, 3ra, 4ta: Cancelled (Se cancelan por obsolescencia)
+# - 5ta: Pending (Espera a que termine la 1ra)
 # ----------------------------------------------------------------------------------------
 
 echo ""
-echo "--- Escenario 2: Recursos Paralelos (QA y PRD) ---"
+echo "--- Escenario 2: Stress Test (5 requests de 'Legacy-Monolith' -> dev/apim-core) ---"
+echo "ℹ️  Esperamos: 1 Ejecutando, 3 Cancelados, 1 Pendiente."
 
-BODY_QA="### Nombre de la API
-API-QA-Service
+TARGET_API="Legacy-Monolith-V1"
 
-### Ambiente Destino
-qa
-
-### Instancia APIM
-apim-channel
-
-### Equipo Solicitante
-logistics-team
-
-### Motivo del Despliegue
-Prueba paralela"
-
-gh issue create --repo "$REPO" \
-    --title "[AUTO] Deploy Request QA (Paralelo)" \
-    --body "$BODY_QA" \
-    --label "deployment" > /dev/null
-
-echo "📝 Issue QA Creado."
-
-BODY_PRD="### Nombre de la API
-API-PRD-Service
+for i in {1..5}
+do
+   echo "📝 Solicitando despliegue #$i para: $TARGET_API..."
+   
+   BODY="### Nombre de la API
+$TARGET_API
 
 ### Ambiente Destino
-prd
+dev
 
 ### Instancia APIM
 apim-core
 
 ### Equipo Solicitante
-users-team
+legacy-team
 
 ### Motivo del Despliegue
-Prueba paralela"
+Prueba de Stress y Cancelación #$i"
 
-gh issue create --repo "$REPO" \
-    --title "[AUTO] Deploy Request PRD (Paralelo)" \
-    --body "$BODY_PRD" \
-    --label "deployment" > /dev/null
+   gh issue create --repo "$REPO" \
+       --title "[AUTO] Deploy $TARGET_API #$i (Stress)" \
+       --body "$BODY" \
+       --label "deployment" > /dev/null
+done
 
-echo "📝 Issue PRD Creado."
+echo "✅ Batch Stress enviado."
 
 echo ""
-echo "🎉 Simulación completa. Revisa la pestaña 'Actions' en tu repositorio."
+echo "🎉 Simulación V2 completa. Revisa 'Actions' para contrastar los comportamientos."
