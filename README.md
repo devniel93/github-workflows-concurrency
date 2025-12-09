@@ -16,7 +16,7 @@ Simular un entorno real de despliegue donde:
 La configuración actual utiliza **bloqueo estricto por API y Ambiente**. Esto significa que:
 *   ✅ **Dos APIs diferentes** (`ApiA` y `ApiB`) pueden desplegar a `dev` **al mismo tiempo**. (Paralelismo)
 *   ✅ **La misma API** puede desplegar a `dev` y `qa` **al mismo tiempo**. (Independencia de Ambiente)
-*   ⛔ **La misma API** intentando desplegar varias veces a `dev` **será encolada**. (Serialización)
+*   ⛔ **La misma API** intentando desplegar varias veces a `dev` (en el mismo APIM) **será encolada**. (Serialización)
 
 **Código en `deploy.yaml`:**
 ```javascript

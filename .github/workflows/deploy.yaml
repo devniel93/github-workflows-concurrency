@@ -81,9 +81,9 @@ jobs:
           echo "⏰ Timestamp Start: $(date -u)"
           echo "--------------------------------"
 
-      - name: Simulate Heavy Work (90s)
+      - name: Simulate Heavy Work (50s)
         run: |
-          echo "⏳ Simulando despliegue y validaciones (90 segundos)..."
+          echo "⏳ Simulando despliegue y validaciones (50 segundos)..."
           # Dormir para mantener el lock ocupado y forzar a otros a esperar
           sleep 50
 
