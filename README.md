@@ -5,78 +5,72 @@ Este repositorio está diseñado para experimentar, observar y medir cómo GitHu
 ## 🎯 Objetivo del Proyecto
 
 Simular un entorno real de despliegue donde:
-1. Múltiples equipos solicitan despliegues al mismo tiempo.
-2. Existen recursos compartidos (Ambientes: `dev`, `qa`, `prd`) y (APIM: `core`, `channel`, etc.).
-3. Se requiere controlar el acceso para evitar colisiones (Queueing) o permitir paralelismo cuando los recursos son distintos.
+1.  Múltiples equipos solicitan despliegues al mismo tiempo.
+2.  Existen recursos compartidos (Ambientes: `dev`, `qa`, `prd`) y (APIM: `core`, `channel`, etc.).
+3.  Se requiere controlar el acceso para evitar colisiones (**Queueing/Locking**) pero permitir **Paralelismo** cuando los recursos son distintos.
 
-## 🏗 Estructura
+---
 
-- **.github/issue_template/deploy-api.yml**: Formulario de Issue estructurado para solicitar despliegues.
-- **.github/workflows/deploy.yaml**: Workflow principal.
-    - **Job 1**: Analiza el cuerpo del Issue (parsing).
-    - **Job 2**: Simula el despliegue con un `sleep 90`. Este job tiene la configuración de `concurrency`.
-- **simulate_load.sh**: Script para generar tráfico masivo de issues automáticamente.
+## ⚙️ Estrategia de Concurrencia (Actual)
 
-## 🚀 Cómo Ejecutar la Prueba
+La configuración actual utiliza **bloqueo estricto por API y Ambiente**. Esto significa que:
+*   ✅ **Dos APIs diferentes** (`ApiA` y `ApiB`) pueden desplegar a `dev` **al mismo tiempo**. (Paralelismo)
+*   ✅ **La misma API** puede desplegar a `dev` y `qa` **al mismo tiempo**. (Independencia de Ambiente)
+*   ⛔ **La misma API** intentando desplegar varias veces a `dev` **será encolada**. (Serialización)
+
+**Código en `deploy.yaml`:**
+```javascript
+const concurrencyGroup = `deploy-${apiName}-${environment}-${apimInstance}`;
+// Ejemplo: deploy-Payment-Service-dev-apim-core
+```
+
+### Comportamiento de "Cola y Cancelación"
+GitHub Actions optimiza la cola. Si una API lanza 5 despliegues seguidos muy rápido:
+1.  El **#1** entra y corre.
+2.  El **#2, #3, #4** entran a la cola, pero son **cancelados** automáticamente cuando llega el #5 ("Canceling since a higher priority waiting request... exists").
+3.  El **#5** queda en espera (Pending) y corre cuando termina el #1.
+
+*Esto asegura que siempre se despliegue la versión más reciente, descartando las intermedias obsoletas.*
+
+---
+
+## 🚀 Pruebas de Carga
+
+Este repositorio incluye un script automatizado `simulate_load.sh` que prueba 3 escenarios clave:
 
 ### Prerrequisitos
-- Tener instalado [GitHub CLI](https://cli.github.com/).
-- Estar autenticado (`gh auth login`).
-- Tener permisos para crear issues en este repositorio.
+- [GitHub CLI](https://cli.github.com/) instalado y autenticado (`gh auth login`).
 
-### Paso 1: Generar Carga
-Ejecuta el script de simulación desde tu terminal:
-
+### Ejecución
 ```bash
 ./simulate_load.sh
 ```
 
-Esto creará:
-- **5 Issues** compitiendo por `dev` / `apim-core`.
-- **1 Issue** para `qa`.
-- **1 Issue** para `prd`.
+### Escenarios Probados
 
-### Paso 2: Observar en GitHub Actions
-Ve a la pestaña **Actions** de tu repositorio.
-
-1. Verás múltiples workflows disparados (uno por cada Issue).
-2. **Observación clave**:
-    - El primer workflow de `dev` entrará en ejecución (círculo amarillo girando).
-    - Los otros 4 workflows de `dev` se quedarán en estado **Pending** (amarillo estático) o "Queued", indicando que están esperando que se libere el grupo de concurrencia.
-    - Los workflows de `qa` y `prd` deberían ejecutarse **en paralelo** al de `dev`, ya que sus grupos de concurrencia son distintos (`deploy-qa-apim-channel`, etc.).
-
-## ⚙️ Configuración de Concurrencia
-
-El comportamiento está definido en `.github/workflows/deploy.yaml`. Actualmente está configurado para la máxima granularidad:
-
-```javascript
-// deploy.yaml - Job parse-metadata
-const concurrencyGroup = `deploy-${environment}-${apimInstance}`;
-```
-
-### Variantes de Prueba
-
-Para probar otros comportamientos, edita el archivo `.github/workflows/deploy.yaml` y cambia la variable `concurrencyGroup` en el paso de script JS:
-
-1. **Bloqueo estricto por Ambiente**:
-   ```javascript
-   const concurrencyGroup = `deploy-${environment}`;
-   ```
-   *Efecto*: Todos los despliegues a `dev` harán cola, sin importar si van a APIMs distintos.
-
-2. **Bloqueo por APIM**:
-    ```javascript
-    const concurrencyGroup = `deploy-${apimInstance}`;
-    ```
-    *Efecto*: Bloquea si usan la misma instancia de APIM, aunque sean ambientes distintos (útil si la APIM es un recurso global).
-
-## 📊 Resultados Esperados
-
-| Escenario | Comportamiento del Workflow | Estado en UI |
-|-----------|-----------------------------|--------------|
-| Workflow A (dev) corriendo | Ejecutando `sleep 90` | In Progress |
-| Workflow B (dev) llega | Detecta `deploy-dev-apim-core` ocupado | Pending / Queued |
-| Workflow C (qa) llega | Detecta `deploy-qa-...` libre | In Progress (Paralelo) |
+| Escenario | Descripción | Comportamiento Esperado |
+|-----------|-------------|-------------------------|
+| **1. Paralelismo de APIs** | 3 APIs distintas (`Payment`, `User`, `Notification`) solicitan despliegue a `dev` al mismo tiempo. | **Todos corren a la vez (In Progress).** No hay bloqueo porque son APIs distintas. |
+| **2. Saturación por API** | La misma API (`Legacy-Monolith`) lanza 5 solicitudes seguidas a `dev`. | **1 En ejecución, 3 Cancelados, 1 Pendiente.** Demonstración de optimización de cola. |
+| **3. Cross-Environment** | La API (`Legacy-Monolith`) lanza a `qa` mientras `dev` está saturado. | **Corre inmediatamente (In Progress).** El bloqueo de `dev` no afecta a `qa`. |
 
 ---
-**Nota**: Este proyecto demuestra el uso de `concurrency` a nivel de Job con claves dinámicas, una técnica avanzada para orquestar despliegues complejos sin herramientas externas.
+
+## 🏗 Estructura del Proyecto
+
+- **.github/ISSUE_TEMPLATE/deploy-api.yml**: Formulario de Issue para solicitar despliegues.
+- **.github/workflows/deploy.yaml**: Workflow principal.
+    - **Job 1**: Extrae metadatos (API Name, Env, APIM) del cuerpo del issue.
+    - **Job 2**: Define la `concurrency` dinámica y simula trabajo con `sleep 50`.
+- **simulate_load.sh**: Script de bash que usa `gh` para generar los escenarios de prueba.
+
+---
+
+## 📊 Resumen de Resultados
+
+| Acción | Resultado | ¿Por qué? |
+|--------|-----------|-----------|
+| API A en Dev + API B en Dev | ✅ Paralelo | `concurrency_group` diferente (nombre de API). |
+| API A en Dev + API A en QA | ✅ Paralelo | `concurrency_group` diferente (nombre de ambiente). |
+| API A en Dev (v1) + API A en Dev (v2) | ⏳ Encolado | `concurrency_group` idéntico. |
+| API A en Dev (v1...v5 Ráfaga) | 🚫 Cancelación Intermedia | Optimización nativa de GitHub Actions (Freshness). |
